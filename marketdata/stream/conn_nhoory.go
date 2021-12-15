@@ -24,6 +24,7 @@ func newNhooyrWebsocketConn(ctx context.Context, u url.URL) (conn, error) {
 		HTTPHeader: http.Header{
 			"Content-Type": []string{"application/msgpack"},
 		},
+		HTTPClient: httpClient(),
 	})
 
 	return &nhooyrWebsocketConn{
