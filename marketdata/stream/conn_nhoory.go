@@ -25,6 +25,7 @@ func newNhooyrWebsocketConn(ctx context.Context, u url.URL) (conn, error) {
 			"Content-Type": []string{"application/msgpack"},
 		},
 	})
+	conn.SetReadLimit(65535)
 
 	return &nhooyrWebsocketConn{
 		conn:    conn,
