@@ -37,7 +37,7 @@ func newNhooyrWebsocketConn(ctx context.Context, u url.URL) (conn, error) {
 	// and the server always returns ALL the subscribed symbols.
 	// Increasing the read limit should not have a negative affect on performance or anything,
 	// but it makes possible to read these large messages.
-	conn.SetReadLimit(1024 * 1024)
+	conn.SetReadLimit(maxFrameSize)
 
 	return &nhooyrWebsocketConn{
 		conn:    conn,

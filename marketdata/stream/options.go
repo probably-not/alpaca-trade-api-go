@@ -119,7 +119,15 @@ func WithBufferSize(size int) Option {
 	})
 }
 
-func withConnCreator(connCreator func(ctx context.Context, u url.URL) (conn, error)) Option {
+var (
+	Gobwas  = func(ctx context.Context, u url.URL) (conn, error) { return newGobwasWebsocketConn(ctx, u) }
+	Gorilla = func(ctx context.Context, u url.URL) (conn, error) { return newGorillaWebsocketConn(ctx, u) }
+	Nhooyr  = func(ctx context.Context, u url.URL) (conn, error) { return newNhooyrWebsocketConn(ctx, u) }
+)
+
+// WithConnCreator sets the websocket connection creator
+// Valid values are: `Gobwas`, `Gorilla` or `Nhooyr` (default)
+func WithConnCreator(connCreator func(ctx context.Context, u url.URL) (conn, error)) Option {
 	return newFuncOption(func(o *options) {
 		o.connCreator = connCreator
 	})
@@ -156,6 +164,7 @@ func defaultStockOptions() *stockOptions {
 			reconnectDelay: 150 * time.Millisecond,
 			processorCount: 1,
 			bufferSize:     100000,
+			connCreator:    Nhooyr,
 			sub: subscriptions{
 				trades:       []string{},
 				quotes:       []string{},
@@ -166,9 +175,6 @@ func defaultStockOptions() *stockOptions {
 				lulds:        []string{},
 				cancelErrors: []string{},
 				corrections:  []string{},
-			},
-			connCreator: func(ctx context.Context, u url.URL) (conn, error) {
-				return newNhooyrWebsocketConn(ctx, u)
 			},
 		},
 		tradeHandler:         func(t Trade) {},

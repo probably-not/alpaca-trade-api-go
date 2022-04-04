@@ -368,8 +368,7 @@ func (c *client) maintainConnection(ctx context.Context, u url.URL, initialResul
 	}
 
 	for {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			if !connectedAtLeastOnce {
 				c.logger.Warnf("datav2stream: cancelled before connection could be established, last error: %v", connError)
 				err := fmt.Errorf("cancelled before connection could be established, last error: %w", connError)
@@ -378,65 +377,65 @@ func (c *client) maintainConnection(ctx context.Context, u url.URL, initialResul
 				c.terminatedChan <- nil
 			}
 			return
-		default:
-			if c.reconnectLimit != 0 && failedAttemptsInARow >= c.reconnectLimit {
-				c.logger.Errorf("datav2stream: max reconnect limit has been reached, last error: %v", connError)
-				e := fmt.Errorf("max reconnect limit has been reached, last error: %w", connError)
-				sendError(e)
+		}
+
+		if c.reconnectLimit != 0 && failedAttemptsInARow >= c.reconnectLimit {
+			c.logger.Errorf("datav2stream: max reconnect limit has been reached, last error: %v", connError)
+			e := fmt.Errorf("max reconnect limit has been reached, last error: %w", connError)
+			sendError(e)
+			return
+		}
+
+		time.Sleep(time.Duration(failedAttemptsInARow) * c.reconnectDelay)
+		failedAttemptsInARow++
+		c.logger.Infof("datav2stream: connecting to %s, attempt %d/%d ...", u.String(), failedAttemptsInARow, c.reconnectLimit)
+		conn, err := c.connCreator(ctx, u)
+		if err != nil {
+			connError = err
+			if isHttp4xx(err) {
+				c.logger.Errorf("datav2stream: %v", wrapIrrecoverable(err))
+				sendError(wrapIrrecoverable(err))
 				return
 			}
-			time.Sleep(time.Duration(failedAttemptsInARow) * c.reconnectDelay)
-			failedAttemptsInARow++
-			c.logger.Infof("datav2stream: connecting to %s, attempt %d/%d ...", u.String(), failedAttemptsInARow, c.reconnectLimit)
-			conn, err := c.connCreator(ctx, u)
-			if err != nil {
-				connError = err
-				if isHttp4xx(err) {
-					c.logger.Errorf("datav2stream: %v", wrapIrrecoverable(err))
-					sendError(wrapIrrecoverable(err))
-					return
-				}
-				c.logger.Warnf("datav2stream: failed to connect, error: %v", err)
-				continue
-			}
-			c.conn = conn
+			c.logger.Warnf("datav2stream: failed to connect, error: %v", err)
+			continue
+		}
+		c.conn = conn
 
-			c.logger.Infof("datav2stream: established connection")
-			if err := c.initialize(ctx); err != nil {
-				connError = err
-				c.conn.close()
-				if isErrorIrrecoverableAtInit(err) {
-					c.logger.Errorf("datav2stream: %v", wrapIrrecoverable(err))
-					sendError(wrapIrrecoverable(err))
-					return
-				}
-				c.logger.Warnf("datav2stream: connection setup failed, error: %v", err)
-				continue
+		c.logger.Infof("datav2stream: established connection")
+		if err := c.initialize(ctx); err != nil {
+			connError = err
+			c.conn.close()
+			if isErrorIrrecoverableAtInit(err) {
+				c.logger.Errorf("datav2stream: %v", wrapIrrecoverable(err))
+				sendError(wrapIrrecoverable(err))
+				return
 			}
-			c.logger.Infof("datav2stream: finished connection setup")
-			connError = nil
-			if !connectedAtLeastOnce {
-				initialResultCh <- nil
-				connectedAtLeastOnce = true
-			}
-			failedAttemptsInARow = 0
+			c.logger.Warnf("datav2stream: connection setup failed, error: %v", err)
+			continue
+		}
+		c.logger.Infof("datav2stream: finished connection setup")
+		connError = nil
+		if !connectedAtLeastOnce {
+			initialResultCh <- nil
+			connectedAtLeastOnce = true
+		}
+		failedAttemptsInARow = 0
 
-			c.in = make(chan []byte, c.bufferSize)
-			wg := sync.WaitGroup{}
-			wg.Add(c.processorCount + 3)
-			closeCh := make(chan struct{})
-			for i := 0; i < c.processorCount; i++ {
-				go c.messageProcessor(ctx, &wg)
-			}
-			go c.connPinger(ctx, &wg, closeCh)
-			go c.connReader(ctx, &wg, closeCh)
-			go c.connWriter(ctx, &wg, closeCh)
-			wg.Wait()
-			if ctx.Err() != nil {
-				c.logger.Infof("datav2stream: disconnected")
-			} else {
-				c.logger.Warnf("datav2stream: connection lost")
-			}
+		c.in = make(chan []byte, c.bufferSize)
+		wg := sync.WaitGroup{}
+		wg.Add(c.processorCount + 2)
+		closeCh := make(chan struct{})
+		for i := 0; i < c.processorCount; i++ {
+			go c.messageProcessor(ctx, &wg)
+		}
+		go c.connReader(ctx, &wg, closeCh)
+		go c.connWriter(ctx, &wg, closeCh)
+		wg.Wait()
+		if ctx.Err() != nil {
+			c.logger.Infof("datav2stream: disconnected")
+		} else {
+			c.logger.Warnf("datav2stream: connection lost")
 		}
 	}
 }
@@ -483,40 +482,10 @@ var newPingTicker = func() ticker {
 	return &timeTicker{ticker: time.NewTicker(pingPeriod)}
 }
 
-// connPinger periodically calls c.conn.Ping to ensure the connection is still alive
-func (c *client) connPinger(ctx context.Context, wg *sync.WaitGroup, closeCh <-chan struct{}) {
-	pingTicker := newPingTicker()
-	defer func() {
-		pingTicker.Stop()
-		c.conn.close()
-		wg.Done()
-	}()
-
-	for {
-		select {
-		case <-closeCh:
-			return
-		case <-ctx.Done():
-			return
-		case <-pingTicker.C():
-			if err := c.conn.ping(ctx); err != nil {
-				if ctx.Err() == nil {
-					c.logger.Warnf("datav2stream: ping failed, error: %v", err)
-				}
-				return
-			}
-		}
-	}
-}
-
 // connReader reads from c.conn and sends those messages to c.in.
 // It is also responsible for closing closeCh that terminates the other worker
 // goroutines and also for closing c.in which terminates messageProcessors.
-func (c *client) connReader(
-	ctx context.Context,
-	wg *sync.WaitGroup,
-	closeCh chan<- struct{},
-) {
+func (c *client) connReader(ctx context.Context, wg *sync.WaitGroup, closeCh chan<- struct{}) {
 	defer func() {
 		close(closeCh)
 		c.conn.close()
@@ -539,7 +508,9 @@ func (c *client) connReader(
 
 // connWriter handles writing messages from c.subChanges to c.conn
 func (c *client) connWriter(ctx context.Context, wg *sync.WaitGroup, closeCh <-chan struct{}) {
+	pingTicker := newPingTicker()
 	defer func() {
+		pingTicker.Stop()
 		c.conn.close()
 		wg.Done()
 	}()
@@ -569,15 +540,19 @@ func (c *client) connWriter(ctx context.Context, wg *sync.WaitGroup, closeCh <-c
 				}
 				return
 			}
+		case <-pingTicker.C():
+			if err := c.conn.ping(ctx); err != nil {
+				if ctx.Err() == nil {
+					c.logger.Warnf("datav2stream: ping failed, error: %v", err)
+				}
+				return
+			}
 		}
 	}
 }
 
 // messageProcessor reads from c.in (while it's open) and processes the messages
-func (c *client) messageProcessor(
-	ctx context.Context,
-	wg *sync.WaitGroup,
-) {
+func (c *client) messageProcessor(ctx context.Context, wg *sync.WaitGroup) {
 	defer func() {
 		wg.Done()
 	}()

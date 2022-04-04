@@ -37,11 +37,11 @@ func TestConnectFails(t *testing.T) {
 			case stocksTests:
 				c = NewStocksClient("iex",
 					WithReconnectSettings(1, 0),
-					withConnCreator(connCreator))
+					WithConnCreator(connCreator))
 			case cryptoTests:
 				c = NewCryptoClient(
 					WithReconnectSettings(1, 0),
-					withConnCreator(connCreator))
+					WithConnCreator(connCreator))
 			}
 
 			// server connection can not be established
@@ -113,9 +113,9 @@ func TestConnectImmediatelyFailsAfterIrrecoverableErrors(t *testing.T) {
 				var c StreamClient
 				switch tt.name {
 				case stocksTests:
-					c = NewStocksClient("iex", reconnectSettings, withConnCreator(connCreator))
+					c = NewStocksClient("iex", reconnectSettings, WithConnCreator(connCreator))
 				case cryptoTests:
-					c = NewCryptoClient(reconnectSettings, withConnCreator(connCreator))
+					c = NewCryptoClient(reconnectSettings, WithConnCreator(connCreator))
 				}
 
 				// server welcomes the client
@@ -159,11 +159,11 @@ func TestContextCancelledBeforeConnect(t *testing.T) {
 			case stocksTests:
 				c = NewStocksClient("iex",
 					WithBaseURL("http://test.paca/v2"),
-					withConnCreator(connCreator))
+					WithConnCreator(connCreator))
 			case cryptoTests:
 				c = NewCryptoClient(
 					WithBaseURL("http://test.paca/v2"),
-					withConnCreator(connCreator))
+					WithConnCreator(connCreator))
 			}
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
@@ -189,9 +189,9 @@ func TestConnectSucceeds(t *testing.T) {
 			var c StreamClient
 			switch tt.name {
 			case stocksTests:
-				c = NewStocksClient("iex", withConnCreator(connCreator))
+				c = NewStocksClient("iex", WithConnCreator(connCreator))
 			case cryptoTests:
-				c = NewCryptoClient(withConnCreator(connCreator))
+				c = NewCryptoClient(WithConnCreator(connCreator))
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -268,7 +268,7 @@ func TestSubscribeMultipleCallsStocks(t *testing.T) {
 	defer connection.close()
 	writeInitialFlowMessagesToConn(t, connection, subscriptions{})
 
-	c := NewStocksClient("iex", withConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
+	c := NewStocksClient("iex", WithConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
 		return connection, nil
 	}))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -301,7 +301,7 @@ func TestSubscribeCalledButClientTerminatesCrypto(t *testing.T) {
 
 	c := NewCryptoClient(
 		WithCredentials("my_key", "my_secret"),
-		withConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
+		WithConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
 			return connection, nil
 		}))
 
@@ -350,7 +350,7 @@ func TestSubscriptionTimeout(t *testing.T) {
 
 	c := NewStocksClient("iex",
 		WithCredentials("a", "b"),
-		withConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
+		WithConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
 			return connection, nil
 		}))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -397,7 +397,7 @@ func TestSubscriptionChangeInvalid(t *testing.T) {
 
 	c := NewStocksClient("iex",
 		WithCredentials("a", "b"),
-		withConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
+		WithConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
 			return connection, nil
 		}))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -436,7 +436,7 @@ func TestSubscripitionAcrossConnectionIssues(t *testing.T) {
 	secret := "testsecret"
 	c := NewStocksClient("iex",
 		WithCredentials(key, secret),
-		withConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
+		WithConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
 			return conn1, nil
 		}))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -525,7 +525,7 @@ func TestSubscribeFailsDueToError(t *testing.T) {
 
 	c := NewCryptoClient(
 		WithCredentials("my_key", "my_secret"),
-		withConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
+		WithConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
 			return connection, nil
 		}))
 
@@ -624,9 +624,9 @@ func TestPingFails(t *testing.T) {
 			var c StreamClient
 			switch tt.name {
 			case stocksTests:
-				c = NewStocksClient("iex", WithReconnectSettings(1, 0), withConnCreator(connCreator))
+				c = NewStocksClient("iex", WithReconnectSettings(1, 0), WithConnCreator(connCreator))
 			case cryptoTests:
-				c = NewCryptoClient(WithReconnectSettings(1, 0), withConnCreator(connCreator))
+				c = NewCryptoClient(WithReconnectSettings(1, 0), WithConnCreator(connCreator))
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -692,7 +692,7 @@ func TestCoreFunctionalityStocks(t *testing.T) {
 		WithLULDs(func(l LULD) { lulds <- l }, "ALPACA"),
 		WithCancelErrors(func(tce TradeCancelError) { cancelErrors <- tce }),
 		WithCorrections(func(tc TradeCorrection) { corrections <- tc }),
-		withConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
+		WithConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
 			return connection, nil
 		}))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -894,7 +894,7 @@ func TestCoreFunctionalityCrypto(t *testing.T) {
 		WithCryptoBars(func(b CryptoBar) { bars <- b }, "LTCUSD"),
 		WithCryptoUpdatedBars(func(b CryptoBar) { updatedBars <- b }, "BCHUSD"),
 		WithCryptoDailyBars(func(b CryptoBar) { dailyBars <- b }, "BCHUSD"),
-		withConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
+		WithConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
 			return connection, nil
 		}))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1013,7 +1013,7 @@ func TestCoreFunctionalityNews(t *testing.T) {
 	news := make(chan News, 10)
 	c := NewNewsClient(
 		WithNews(func(n News) { news <- n }, "AAPL"),
-		withConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
+		WithConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
 			return connection, nil
 		}))
 	ctx, cancel := context.WithCancel(context.Background())
