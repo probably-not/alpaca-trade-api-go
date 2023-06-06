@@ -700,13 +700,16 @@ func (c *Client) GetSnapshots(symbols []string, req GetSnapshotRequest) (map[str
 
 const cryptoPrefix = "v1beta3/crypto"
 
-func setCryptoBaseQuery(q url.Values, symbols []string, start, end time.Time) {
+func setCryptoBaseQuery(q url.Values, symbols []string, start, end time.Time, pageToken string) {
 	q.Set("symbols", strings.Join(symbols, ","))
 	if !start.IsZero() {
 		q.Set("start", start.Format(time.RFC3339Nano))
 	}
 	if !end.IsZero() {
 		q.Set("end", end.Format(time.RFC3339Nano))
+	}
+	if pageToken != "" {
+		q.Set("page_token", pageToken)
 	}
 }
 
@@ -744,7 +747,7 @@ func (c *Client) GetCryptoMultiTrades(symbols []string, req GetCryptoTradesReque
 	}
 
 	q := u.Query()
-	setCryptoBaseQuery(q, symbols, req.Start, req.End)
+	setCryptoBaseQuery(q, symbols, req.Start, req.End, req.PageToken)
 
 	trades := make(map[string][]CryptoTrade, len(symbols))
 	received := 0
@@ -794,7 +797,7 @@ type GetCryptoBarsRequest struct {
 }
 
 func setQueryCryptoBarRequest(q url.Values, symbols []string, req GetCryptoBarsRequest) {
-	setCryptoBaseQuery(q, symbols, req.Start, req.End)
+	setCryptoBaseQuery(q, symbols, req.Start, req.End, req.PageToken)
 	timeframe := OneDay
 	if req.TimeFrame.N != 0 {
 		timeframe = req.TimeFrame
