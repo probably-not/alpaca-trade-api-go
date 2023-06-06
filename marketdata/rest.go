@@ -1075,6 +1075,8 @@ type GetNewsRequest struct {
 	NoTotalLimit bool
 	// PageLimit is the pagination size. If empty, the default page size will be used.
 	PageLimit int
+	// PageToken is the pagination token to continue to next page
+	PageToken string
 }
 
 func (c *Client) setNewsQuery(q url.Values, p GetNewsRequest) {
@@ -1095,6 +1097,9 @@ func (c *Client) setNewsQuery(q url.Values, p GetNewsRequest) {
 	}
 	if p.ExcludeContentless {
 		q.Set("exclude_contentless", strconv.FormatBool(p.ExcludeContentless))
+	}
+	if p.PageToken != "" {
+		q.Set("page_token", p.PageToken)
 	}
 }
 
