@@ -198,6 +198,8 @@ type GetTradesRequest struct {
 	AsOf string
 	// Currency is the currency of the displayed prices
 	Currency string
+	// PageToken is the pagination token to continue from
+	PageToken string
 }
 
 // GetTrades returns the trades for the given symbol.
@@ -271,6 +273,8 @@ type GetQuotesRequest struct {
 	AsOf string
 	// Currency is the currency of the displayed prices
 	Currency string
+	// PageToken is the pagination token to continue from
+	PageToken string
 }
 
 // GetQuotes returns the quotes for the given symbol.
@@ -349,6 +353,8 @@ type GetBarsRequest struct {
 	AsOf string
 	// Currency is the currency of the displayed prices
 	Currency string
+	// PageToken is the pagination token to continue from
+	PageToken string
 }
 
 func (c *Client) setQueryBarRequest(q url.Values, symbols []string, req GetBarsRequest) {
@@ -435,6 +441,8 @@ type GetAuctionsRequest struct {
 	AsOf string
 	// Currency is the currency of the displayed prices
 	Currency string
+	// PageToken is the pagination token to continue from
+	PageToken string
 }
 
 // GetAuctions returns the auctions for the given symbol.
@@ -707,6 +715,8 @@ type GetCryptoTradesRequest struct {
 	PageLimit int
 	// CryptoFeed is the crypto feed. Default is "us".
 	CryptoFeed CryptoFeed
+	// PageToken is the pagination token to continue from
+	PageToken string
 }
 
 // GetCryptoTrades returns the trades for the given crypto symbol.
@@ -771,6 +781,8 @@ type GetCryptoBarsRequest struct {
 	PageLimit int
 	// CryptoFeed is the crypto feed. Default is "us".
 	CryptoFeed CryptoFeed
+	// PageToken is the pagination token to continue from
+	PageToken string
 }
 
 func setQueryCryptoBarRequest(q url.Values, symbols []string, req GetCryptoBarsRequest) {
