@@ -124,12 +124,13 @@ RetryLoop:
 }
 
 type baseRequest struct {
-	Symbols  []string
-	Start    time.Time
-	End      time.Time
-	Feed     Feed
-	AsOf     string
-	Currency string
+	Symbols   []string
+	Start     time.Time
+	End       time.Time
+	Feed      Feed
+	AsOf      string
+	Currency  string
+	PageToken string
 }
 
 func (c *Client) setBaseQuery(q url.Values, req baseRequest) {
@@ -152,6 +153,9 @@ func (c *Client) setBaseQuery(q url.Values, req baseRequest) {
 		q.Set("currency", req.Currency)
 	} else if c.opts.Currency != "" {
 		q.Set("currency", c.opts.Currency)
+	}
+	if req.PageToken != "" {
+		q.Set("page_token", req.PageToken)
 	}
 }
 
@@ -220,12 +224,13 @@ func (c *Client) GetMultiTrades(symbols []string, req GetTradesRequest) (map[str
 
 	q := u.Query()
 	c.setBaseQuery(q, baseRequest{
-		Symbols:  symbols,
-		Start:    req.Start,
-		End:      req.End,
-		Feed:     req.Feed,
-		AsOf:     req.AsOf,
-		Currency: req.Currency,
+		Symbols:   symbols,
+		Start:     req.Start,
+		End:       req.End,
+		Feed:      req.Feed,
+		AsOf:      req.AsOf,
+		Currency:  req.Currency,
+		PageToken: req.PageToken,
 	})
 
 	trades := make(map[string][]Trade, len(symbols))
@@ -295,12 +300,13 @@ func (c *Client) GetMultiQuotes(symbols []string, req GetQuotesRequest) (map[str
 
 	q := u.Query()
 	c.setBaseQuery(q, baseRequest{
-		Symbols:  symbols,
-		Start:    req.Start,
-		End:      req.End,
-		Feed:     req.Feed,
-		AsOf:     req.AsOf,
-		Currency: req.Currency,
+		Symbols:   symbols,
+		Start:     req.Start,
+		End:       req.End,
+		Feed:      req.Feed,
+		AsOf:      req.AsOf,
+		Currency:  req.Currency,
+		PageToken: req.PageToken,
 	})
 
 	quotes := make(map[string][]Quote, len(symbols))
@@ -359,12 +365,13 @@ type GetBarsRequest struct {
 
 func (c *Client) setQueryBarRequest(q url.Values, symbols []string, req GetBarsRequest) {
 	c.setBaseQuery(q, baseRequest{
-		Symbols:  symbols,
-		Start:    req.Start,
-		End:      req.End,
-		Feed:     req.Feed,
-		AsOf:     req.AsOf,
-		Currency: req.Currency,
+		Symbols:   symbols,
+		Start:     req.Start,
+		End:       req.End,
+		Feed:      req.Feed,
+		AsOf:      req.AsOf,
+		Currency:  req.Currency,
+		PageToken: req.PageToken,
 	})
 	adjustment := Raw
 	if req.Adjustment != "" {
@@ -465,12 +472,13 @@ func (c *Client) GetMultiAuctions(
 
 	q := u.Query()
 	c.setBaseQuery(q, baseRequest{
-		Symbols:  symbols,
-		Start:    req.Start,
-		End:      req.End,
-		Feed:     "sip",
-		AsOf:     req.AsOf,
-		Currency: req.Currency,
+		Symbols:   symbols,
+		Start:     req.Start,
+		End:       req.End,
+		Feed:      "sip",
+		AsOf:      req.AsOf,
+		Currency:  req.Currency,
+		PageToken: req.PageToken,
 	})
 
 	auctions := make(map[string][]DailyAuctions, len(symbols))
