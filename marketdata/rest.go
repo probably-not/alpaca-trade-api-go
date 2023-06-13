@@ -132,6 +132,11 @@ type baseRequest struct {
 	Currency string
 }
 
+type basePaginatedRequest struct {
+	baseRequest
+	PageToken string
+}
+
 func (c *Client) setBaseQuery(q url.Values, req baseRequest) {
 	q.Set("symbols", strings.Join(req.Symbols, ","))
 	if !req.Start.IsZero() {
@@ -152,6 +157,13 @@ func (c *Client) setBaseQuery(q url.Values, req baseRequest) {
 		q.Set("currency", req.Currency)
 	} else if c.opts.Currency != "" {
 		q.Set("currency", c.opts.Currency)
+	}
+}
+
+func (c *Client) setBasePaginatedQuery(q url.Values, req basePaginatedRequest) {
+	c.setBaseQuery(q, req.baseRequest)
+	if req.PageToken != "" {
+		q.Set("page_token", req.PageToken)
 	}
 }
 
@@ -200,46 +212,75 @@ type GetTradesRequest struct {
 	Currency string
 }
 
+// GetTradesPaginatedRequest contains optional parameters for getting trades in a paginated way.
+type GetTradesPaginatedRequest struct {
+	GetTradesRequest
+	// PageToken is the pagination token to continue from
+	PageToken string
+}
+
 // GetTrades returns the trades for the given symbol.
 func (c *Client) GetTrades(symbol string, req GetTradesRequest) ([]Trade, error) {
-	resp, err := c.GetMultiTrades([]string{symbol}, req)
+	resp, _, err := c.GetTradesPaginated(symbol, GetTradesPaginatedRequest{GetTradesRequest: req})
 	if err != nil {
 		return nil, err
 	}
-	return resp[symbol], nil
+	return resp, nil
+}
+
+// GetTradesPaginated returns the trades for the given symbol, and returns the nextPageToken to allow for manual pagination.
+func (c *Client) GetTradesPaginated(symbol string, req GetTradesPaginatedRequest) ([]Trade, string, error) {
+	resp, nextPageToken, err := c.GetMultiTradesPaginated([]string{symbol}, req)
+	if err != nil {
+		return nil, nextPageToken, err
+	}
+	return resp[symbol], nextPageToken, nil
 }
 
 // GetMultiTrades returns trades for the given symbols.
 func (c *Client) GetMultiTrades(symbols []string, req GetTradesRequest) (map[string][]Trade, error) {
-	u, err := url.Parse(fmt.Sprintf("%s/%s/trades", c.opts.BaseURL, stockPrefix))
+	resp, _, err := c.GetMultiTradesPaginated(symbols, GetTradesPaginatedRequest{GetTradesRequest: req})
 	if err != nil {
 		return nil, err
 	}
+	return resp, nil
+}
+
+// GetMultiTradesPaginated returns trades for the given symbols, and returns the nextPageToken to allow for manual pagination.
+func (c *Client) GetMultiTradesPaginated(symbols []string, req GetTradesPaginatedRequest) (map[string][]Trade, string, error) {
+	u, err := url.Parse(fmt.Sprintf("%s/%s/trades", c.opts.BaseURL, stockPrefix))
+	if err != nil {
+		return nil, "", err
+	}
 
 	q := u.Query()
-	c.setBaseQuery(q, baseRequest{
-		Symbols:  symbols,
-		Start:    req.Start,
-		End:      req.End,
-		Feed:     req.Feed,
-		AsOf:     req.AsOf,
-		Currency: req.Currency,
+	c.setBasePaginatedQuery(q, basePaginatedRequest{
+		baseRequest: baseRequest{
+			Symbols:  symbols,
+			Start:    req.Start,
+			End:      req.End,
+			Feed:     req.Feed,
+			AsOf:     req.AsOf,
+			Currency: req.Currency,
+		},
+		PageToken: req.PageToken,
 	})
 
 	trades := make(map[string][]Trade, len(symbols))
 	received := 0
+	nextPageToken := req.PageToken
 	for req.TotalLimit == 0 || received < req.TotalLimit {
 		setQueryLimit(q, req.TotalLimit, req.PageLimit, received, v2MaxLimit)
 		u.RawQuery = q.Encode()
 
 		resp, err := c.get(u)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 
 		var tradeResp multiTradeResponse
 		if err = unmarshal(resp, &tradeResp); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 
 		for symbol, t := range tradeResp.Trades {
@@ -247,11 +288,13 @@ func (c *Client) GetMultiTrades(symbols []string, req GetTradesRequest) (map[str
 			received += len(t)
 		}
 		if tradeResp.NextPageToken == nil {
+			nextPageToken = ""
 			break
 		}
+		nextPageToken = *tradeResp.NextPageToken
 		q.Set("page_token", *tradeResp.NextPageToken)
 	}
-	return trades, nil
+	return trades, nextPageToken, nil
 }
 
 // GetQuotesRequest contains optional parameters for getting quotes
@@ -273,6 +316,13 @@ type GetQuotesRequest struct {
 	Currency string
 }
 
+// GetQuotesPaginatedRequest contains optional parameters for getting quotes in a paginated way
+type GetQuotesPaginatedRequest struct {
+	GetQuotesRequest
+	// PageToken is the pagination token to continue from
+	PageToken string
+}
+
 // GetQuotes returns the quotes for the given symbol.
 func (c *Client) GetQuotes(symbol string, req GetQuotesRequest) ([]Quote, error) {
 	resp, _, err := c.GetQuotesPaginated(symbol, GetQuotesPaginatedRequest{GetQuotesRequest: req})
@@ -282,6 +332,15 @@ func (c *Client) GetQuotes(symbol string, req GetQuotesRequest) ([]Quote, error)
 	return resp, nil
 }
 
+// GetQuotesPaginated returns quotes for the given symbol, and returns the nextPageToken to allow for manual pagination.
+func (c *Client) GetQuotesPaginated(symbol string, req GetQuotesPaginatedRequest) ([]Quote, string, error) {
+	resp, nextPageToken, err := c.GetMultiQuotesPaginated([]string{symbol}, req)
+	if err != nil {
+		return nil, nextPageToken, err
+	}
+	return resp[symbol], nextPageToken, nil
+}
+
 // GetMultiQuotes returns quotes for the given symbols.
 func (c *Client) GetMultiQuotes(symbols []string, req GetQuotesRequest) (map[string][]Quote, error) {
 	resp, _, err := c.GetMultiQuotesPaginated(symbols, GetQuotesPaginatedRequest{GetQuotesRequest: req})
@@ -289,6 +348,57 @@ func (c *Client) GetMultiQuotes(symbols []string, req GetQuotesRequest) (map[str
 		return nil, err
 	}
 	return resp, nil
+}
+
+// GetMultiQuotesPaginated returns quotes for the given symbols, and returns the nextPageToken to allow for manual pagination.
+func (c *Client) GetMultiQuotesPaginated(symbols []string, req GetQuotesPaginatedRequest) (map[string][]Quote, string, error) {
+	u, err := url.Parse(fmt.Sprintf("%s/%s/quotes", c.opts.BaseURL, stockPrefix))
+	if err != nil {
+		return nil, "", err
+	}
+
+	q := u.Query()
+	c.setBasePaginatedQuery(q, basePaginatedRequest{
+		baseRequest: baseRequest{
+			Symbols:  symbols,
+			Start:    req.Start,
+			End:      req.End,
+			Feed:     req.Feed,
+			AsOf:     req.AsOf,
+			Currency: req.Currency,
+		},
+		PageToken: req.PageToken,
+	})
+
+	quotes := make(map[string][]Quote, len(symbols))
+	received := 0
+	nextPageToken := req.PageToken
+	for req.TotalLimit == 0 || received < req.TotalLimit {
+		setQueryLimit(q, req.TotalLimit, req.PageLimit, received, v2MaxLimit)
+		u.RawQuery = q.Encode()
+
+		resp, err := c.get(u)
+		if err != nil {
+			return nil, "", err
+		}
+
+		var quoteResp multiQuoteResponse
+		if err = unmarshal(resp, &quoteResp); err != nil {
+			return nil, "", err
+		}
+
+		for symbol, q := range quoteResp.Quotes {
+			quotes[symbol] = append(quotes[symbol], q...)
+			received += len(q)
+		}
+		if quoteResp.NextPageToken == nil {
+			nextPageToken = ""
+			break
+		}
+		nextPageToken = *quoteResp.NextPageToken
+		q.Set("page_token", *quoteResp.NextPageToken)
+	}
+	return quotes, nextPageToken, nil
 }
 
 // GetBarsRequest contains optional parameters for getting bars
@@ -315,6 +425,13 @@ type GetBarsRequest struct {
 	Currency string
 }
 
+// GetBarsPaginatedRequest contains optional parameters for getting bars in a paginated way
+type GetBarsPaginatedRequest struct {
+	GetBarsRequest
+	// PageToken is the pagination token to continue from
+	PageToken string
+}
+
 func (c *Client) setQueryBarRequest(q url.Values, symbols []string, req GetBarsRequest) {
 	c.setBaseQuery(q, baseRequest{
 		Symbols:  symbols,
@@ -336,6 +453,13 @@ func (c *Client) setQueryBarRequest(q url.Values, symbols []string, req GetBarsR
 	q.Set("timeframe", timeframe.String())
 }
 
+func (c *Client) setQueryBarPaginatedRequest(q url.Values, symbols []string, req GetBarsPaginatedRequest) {
+	c.setQueryBarRequest(q, symbols, req.GetBarsRequest)
+	if req.PageToken != "" {
+		q.Set("page_token", req.PageToken)
+	}
+}
+
 // GetBars returns a slice of bars for the given symbol.
 func (c *Client) GetBars(symbol string, req GetBarsRequest) ([]Bar, error) {
 	resp, _, err := c.GetBarsPaginated(symbol, GetBarsPaginatedRequest{GetBarsRequest: req})
@@ -345,6 +469,15 @@ func (c *Client) GetBars(symbol string, req GetBarsRequest) ([]Bar, error) {
 	return resp, nil
 }
 
+// GetBarsPaginated returns bars for the given symbol, and returns the nextPageToken to allow for manual pagination.
+func (c *Client) GetBarsPaginated(symbol string, req GetBarsPaginatedRequest) ([]Bar, string, error) {
+	resp, nextPageToken, err := c.GetMultiBarsPaginated([]string{symbol}, req)
+	if err != nil {
+		return nil, nextPageToken, err
+	}
+	return resp[symbol], nextPageToken, nil
+}
+
 // GetMultiBars returns bars for the given symbols.
 func (c *Client) GetMultiBars(symbols []string, req GetBarsRequest) (map[string][]Bar, error) {
 	resp, _, err := c.GetMultiBarsPaginated(symbols, GetBarsPaginatedRequest{GetBarsRequest: req})
@@ -352,6 +485,48 @@ func (c *Client) GetMultiBars(symbols []string, req GetBarsRequest) (map[string]
 		return nil, err
 	}
 	return resp, nil
+}
+
+// GetMultiBarsPaginated returns bars for the given symbols, and returns the nextPageToken to allow for manual pagination.
+func (c *Client) GetMultiBarsPaginated(symbols []string, req GetBarsPaginatedRequest) (map[string][]Bar, string, error) {
+	bars := make(map[string][]Bar, len(symbols))
+
+	u, err := url.Parse(fmt.Sprintf("%s/%s/bars", c.opts.BaseURL, stockPrefix))
+	if err != nil {
+		return nil, "", err
+	}
+
+	q := u.Query()
+	c.setQueryBarPaginatedRequest(q, symbols, req)
+
+	received := 0
+	nextPageToken := req.PageToken
+	for req.TotalLimit == 0 || received < req.TotalLimit {
+		setQueryLimit(q, req.TotalLimit, req.PageLimit, received, v2MaxLimit)
+		u.RawQuery = q.Encode()
+
+		resp, err := c.get(u)
+		if err != nil {
+			return nil, "", err
+		}
+
+		var barResp multiBarResponse
+		if err = unmarshal(resp, &barResp); err != nil {
+			return nil, "", err
+		}
+
+		for symbol, b := range barResp.Bars {
+			bars[symbol] = append(bars[symbol], b...)
+			received += len(b)
+		}
+		if barResp.NextPageToken == nil {
+			nextPageToken = ""
+			break
+		}
+		nextPageToken = *barResp.NextPageToken
+		q.Set("page_token", *barResp.NextPageToken)
+	}
+	return bars, nextPageToken, nil
 }
 
 // GetAuctionsRequest contains optional parameters for getting auctions
@@ -371,6 +546,13 @@ type GetAuctionsRequest struct {
 	Currency string
 }
 
+// GetAuctionsPaginatedRequest contains optional parameters for getting auctions in a paginated way
+type GetAuctionsPaginatedRequest struct {
+	GetAuctionsRequest
+	// PageToken is the pagination token to continue from
+	PageToken string
+}
+
 // GetAuctions returns the auctions for the given symbol.
 func (c *Client) GetAuctions(symbol string, req GetAuctionsRequest) ([]DailyAuctions, error) {
 	resp, _, err := c.GetAuctionsPaginated(symbol, GetAuctionsPaginatedRequest{GetAuctionsRequest: req})
@@ -378,6 +560,15 @@ func (c *Client) GetAuctions(symbol string, req GetAuctionsRequest) ([]DailyAuct
 		return nil, err
 	}
 	return resp, nil
+}
+
+// GetAuctionsPaginated returns auctions for the given symbol, and returns the nextPageToken to allow for manual pagination.
+func (c *Client) GetAuctionsPaginated(symbol string, req GetAuctionsPaginatedRequest) ([]DailyAuctions, string, error) {
+	resp, nextPageToken, err := c.GetMultiAuctionsPaginated([]string{symbol}, req)
+	if err != nil {
+		return nil, nextPageToken, err
+	}
+	return resp[symbol], nextPageToken, nil
 }
 
 // GetMultiAuctions returns auctions for the given symbols.
@@ -389,6 +580,59 @@ func (c *Client) GetMultiAuctions(
 		return nil, err
 	}
 	return resp, nil
+}
+
+// GetMultiAuctionsPaginated returns auctions for the given symbols, and returns the nextPageToken to allow for manual pagination.
+func (c *Client) GetMultiAuctionsPaginated(
+	symbols []string, req GetAuctionsPaginatedRequest,
+) (map[string][]DailyAuctions, string, error) {
+	u, err := url.Parse(fmt.Sprintf("%s/%s/auctions", c.opts.BaseURL, stockPrefix))
+	if err != nil {
+		return nil, "", err
+	}
+
+	q := u.Query()
+	c.setBasePaginatedQuery(q, basePaginatedRequest{
+		baseRequest: baseRequest{
+			Symbols:  symbols,
+			Start:    req.Start,
+			End:      req.End,
+			Feed:     "sip",
+			AsOf:     req.AsOf,
+			Currency: req.Currency,
+		},
+		PageToken: req.PageToken,
+	})
+
+	auctions := make(map[string][]DailyAuctions, len(symbols))
+	received := 0
+	nextPageToken := req.PageToken
+	for req.TotalLimit == 0 || received < req.TotalLimit {
+		setQueryLimit(q, req.TotalLimit, req.PageLimit, received, v2MaxLimit)
+		u.RawQuery = q.Encode()
+
+		resp, err := c.get(u)
+		if err != nil {
+			return nil, "", err
+		}
+
+		var auctionsResp multiAuctionsResponse
+		if err = unmarshal(resp, &auctionsResp); err != nil {
+			return nil, "", err
+		}
+
+		for symbol, a := range auctionsResp.Auctions {
+			auctions[symbol] = append(auctions[symbol], a...)
+			received += len(a)
+		}
+		if auctionsResp.NextPageToken == nil {
+			nextPageToken = ""
+			break
+		}
+		nextPageToken = *auctionsResp.NextPageToken
+		q.Set("page_token", *auctionsResp.NextPageToken)
+	}
+	return auctions, nextPageToken, nil
 }
 
 type baseLatestRequest struct {
@@ -592,6 +836,13 @@ func setCryptoBaseQuery(q url.Values, symbols []string, start, end time.Time) {
 	}
 }
 
+func setCryptoBasePaginatedQuery(q url.Values, symbols []string, start, end time.Time, pageToken string) {
+	setCryptoBaseQuery(q, symbols, start, end)
+	if pageToken != "" {
+		q.Set("page_token", pageToken)
+	}
+}
+
 // GetCryptoTradesRequest contains optional parameters for getting crypto trades
 type GetCryptoTradesRequest struct {
 	// Start is the inclusive beginning of the interval
@@ -607,6 +858,13 @@ type GetCryptoTradesRequest struct {
 	CryptoFeed CryptoFeed
 }
 
+// GetCryptoTradesPaginatedRequest contains optional parameters for getting crypto trades in a paginated way
+type GetCryptoTradesPaginatedRequest struct {
+	GetCryptoTradesRequest
+	// PageToken is the pagination token to continue from
+	PageToken string
+}
+
 // GetCryptoTrades returns the trades for the given crypto symbol.
 func (c *Client) GetCryptoTrades(symbol string, req GetCryptoTradesRequest) ([]CryptoTrade, error) {
 	resp, _, err := c.GetCryptoTradesPaginated(symbol, GetCryptoTradesPaginatedRequest{GetCryptoTradesRequest: req})
@@ -616,6 +874,15 @@ func (c *Client) GetCryptoTrades(symbol string, req GetCryptoTradesRequest) ([]C
 	return resp, nil
 }
 
+// GetCryptoTradesPaginated returns trades for the given crypto symbol, and returns the nextPageToken to allow for manual pagination.
+func (c *Client) GetCryptoTradesPaginated(symbol string, req GetCryptoTradesPaginatedRequest) ([]CryptoTrade, string, error) {
+	resp, nextPageToken, err := c.GetCryptoMultiTradesPaginated([]string{symbol}, req)
+	if err != nil {
+		return nil, nextPageToken, err
+	}
+	return resp[symbol], nextPageToken, nil
+}
+
 // GetMultiTrades returns trades for the given crypto symbols.
 func (c *Client) GetCryptoMultiTrades(symbols []string, req GetCryptoTradesRequest) (map[string][]CryptoTrade, error) {
 	resp, _, err := c.GetCryptoMultiTradesPaginated(symbols, GetCryptoTradesPaginatedRequest{GetCryptoTradesRequest: req})
@@ -623,6 +890,47 @@ func (c *Client) GetCryptoMultiTrades(symbols []string, req GetCryptoTradesReque
 		return nil, err
 	}
 	return resp, nil
+}
+
+// GetCryptoMultiTradesPaginated returns trades for the given crypto symbols, and returns the nextPageToken to allow for manual pagination.
+func (c *Client) GetCryptoMultiTradesPaginated(symbols []string, req GetCryptoTradesPaginatedRequest) (map[string][]CryptoTrade, string, error) {
+	u, err := url.Parse(fmt.Sprintf("%s/%s/%s/trades", c.opts.BaseURL, cryptoPrefix, c.cryptoFeed(req.CryptoFeed)))
+	if err != nil {
+		return nil, "", err
+	}
+
+	q := u.Query()
+	setCryptoBasePaginatedQuery(q, symbols, req.Start, req.End, req.PageToken)
+
+	trades := make(map[string][]CryptoTrade, len(symbols))
+	received := 0
+	nextPageToken := req.PageToken
+	for req.TotalLimit == 0 || received < req.TotalLimit {
+		setQueryLimit(q, req.TotalLimit, req.PageLimit, received, v2MaxLimit)
+		u.RawQuery = q.Encode()
+
+		resp, err := c.get(u)
+		if err != nil {
+			return nil, "", err
+		}
+
+		var tradeResp cryptoMultiTradeResponse
+		if err = unmarshal(resp, &tradeResp); err != nil {
+			return nil, "", err
+		}
+
+		for symbol, t := range tradeResp.Trades {
+			trades[symbol] = append(trades[symbol], t...)
+			received += len(t)
+		}
+		if tradeResp.NextPageToken == nil {
+			nextPageToken = ""
+			break
+		}
+		nextPageToken = *tradeResp.NextPageToken
+		q.Set("page_token", *tradeResp.NextPageToken)
+	}
+	return trades, nextPageToken, nil
 }
 
 // GetCryptoBarsRequest contains optional parameters for getting crypto bars
@@ -642,6 +950,13 @@ type GetCryptoBarsRequest struct {
 	CryptoFeed CryptoFeed
 }
 
+// GetCryptoBarsPaginatedRequest contains optional parameters for getting crypto bars in a paginated way
+type GetCryptoBarsPaginatedRequest struct {
+	GetCryptoBarsRequest
+	// PageToken is the pagination token to continue from
+	PageToken string
+}
+
 func setQueryCryptoBarRequest(q url.Values, symbols []string, req GetCryptoBarsRequest) {
 	setCryptoBaseQuery(q, symbols, req.Start, req.End)
 	timeframe := OneDay
@@ -649,6 +964,13 @@ func setQueryCryptoBarRequest(q url.Values, symbols []string, req GetCryptoBarsR
 		timeframe = req.TimeFrame
 	}
 	q.Set("timeframe", timeframe.String())
+}
+
+func setQueryCryptoBarPaginatedRequest(q url.Values, symbols []string, req GetCryptoBarsPaginatedRequest) {
+	setQueryCryptoBarRequest(q, symbols, req.GetCryptoBarsRequest)
+	if req.PageToken != "" {
+		q.Set("page_token", req.PageToken)
+	}
 }
 
 // GetCryptoBars returns a slice of bars for the given crypto symbol.
@@ -660,6 +982,15 @@ func (c *Client) GetCryptoBars(symbol string, req GetCryptoBarsRequest) ([]Crypt
 	return resp, nil
 }
 
+// GetCryptoBarsPaginated returns bars for the given crypto symbol, and returns the nextPageToken to allow for manual pagination.
+func (c *Client) GetCryptoBarsPaginated(symbol string, req GetCryptoBarsPaginatedRequest) ([]CryptoBar, string, error) {
+	resp, nextPageToken, err := c.GetCryptoMultiBarsPaginated([]string{symbol}, req)
+	if err != nil {
+		return nil, nextPageToken, err
+	}
+	return resp[symbol], nextPageToken, nil
+}
+
 // GetCryptoMultiBars returns bars for the given crypto symbols.
 func (c *Client) GetCryptoMultiBars(symbols []string, req GetCryptoBarsRequest) (map[string][]CryptoBar, error) {
 	resp, _, err := c.GetCryptoMultiBarsPaginated(symbols, GetCryptoBarsPaginatedRequest{GetCryptoBarsRequest: req})
@@ -667,6 +998,48 @@ func (c *Client) GetCryptoMultiBars(symbols []string, req GetCryptoBarsRequest) 
 		return nil, err
 	}
 	return resp, nil
+}
+
+// GetCryptoMultiBarsPaginated returns bars for the given crypto symbols, and returns the nextPageToken to allow for manual pagination.
+func (c *Client) GetCryptoMultiBarsPaginated(symbols []string, req GetCryptoBarsPaginatedRequest) (map[string][]CryptoBar, string, error) {
+	u, err := url.Parse(fmt.Sprintf("%s/%s/%s/bars",
+		c.opts.BaseURL, cryptoPrefix, c.cryptoFeed(req.CryptoFeed)))
+	if err != nil {
+		return nil, "", err
+	}
+
+	q := u.Query()
+	setQueryCryptoBarPaginatedRequest(q, symbols, req)
+
+	bars := make(map[string][]CryptoBar, len(symbols))
+	received := 0
+	nextPageToken := req.PageToken
+	for req.TotalLimit == 0 || received < req.TotalLimit {
+		setQueryLimit(q, req.TotalLimit, req.PageLimit, received, v2MaxLimit)
+		u.RawQuery = q.Encode()
+
+		resp, err := c.get(u)
+		if err != nil {
+			return nil, "", err
+		}
+
+		var barResp cryptoMultiBarResponse
+		if err = unmarshal(resp, &barResp); err != nil {
+			return nil, "", err
+		}
+
+		for symbol, b := range barResp.Bars {
+			bars[symbol] = append(bars[symbol], b...)
+			received += len(b)
+		}
+		if barResp.NextPageToken == nil {
+			nextPageToken = ""
+			break
+		}
+		nextPageToken = *barResp.NextPageToken
+		q.Set("page_token", *barResp.NextPageToken)
+	}
+	return bars, nextPageToken, nil
 }
 
 type cryptoBaseLatestRequest struct {
@@ -893,6 +1266,13 @@ type GetNewsRequest struct {
 	PageLimit int
 }
 
+// GetNewsPaginatedRequest contains optional parameters for getting news articles in a paginated way.
+type GetNewsPaginatedRequest struct {
+	GetNewsRequest
+	// PageToken is the pagination token to continue to next page
+	PageToken string
+}
+
 func (c *Client) setNewsQuery(q url.Values, p GetNewsRequest) {
 	if len(p.Symbols) > 0 {
 		q.Set("symbols", strings.Join(p.Symbols, ","))
@@ -914,6 +1294,13 @@ func (c *Client) setNewsQuery(q url.Values, p GetNewsRequest) {
 	}
 }
 
+func (c *Client) setNewsPaginatedQuery(q url.Values, p GetNewsPaginatedRequest) {
+	c.setNewsQuery(q, p.GetNewsRequest)
+	if p.PageToken != "" {
+		q.Set("page_token", p.PageToken)
+	}
+}
+
 // GetNews returns the news articles based on the given req.
 func (c *Client) GetNews(req GetNewsRequest) ([]News, error) {
 	news, _, err := c.GetNewsPaginated(GetNewsPaginatedRequest{GetNewsRequest: req})
@@ -921,6 +1308,57 @@ func (c *Client) GetNews(req GetNewsRequest) ([]News, error) {
 		return nil, err
 	}
 	return news, nil
+}
+
+// GetNewsPaginated returns the news articles based on the given req, and returns the nextPageToken to allow for manual pagination.
+func (c *Client) GetNewsPaginated(req GetNewsPaginatedRequest) ([]News, string, error) {
+	if req.TotalLimit < 0 {
+		return nil, "", fmt.Errorf("negative total limit")
+	}
+	if req.PageLimit < 0 {
+		return nil, "", fmt.Errorf("negative page limit")
+	}
+	if req.NoTotalLimit && req.TotalLimit != 0 {
+		return nil, "", fmt.Errorf("both NoTotalLimit and non-zero TotalLimit specified")
+	}
+	u, err := url.Parse(fmt.Sprintf("%s/v1beta1/news", c.opts.BaseURL))
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid news url: %w", err)
+	}
+
+	q := u.Query()
+	c.setNewsPaginatedQuery(q, req)
+	received := 0
+	totalLimit := req.TotalLimit
+	if req.TotalLimit == 0 && !req.NoTotalLimit {
+		totalLimit = newsMaxLimit
+	}
+
+	nextPageToken := req.PageToken
+	news := make([]News, 0, totalLimit)
+	for totalLimit == 0 || received < totalLimit {
+		setQueryLimit(q, totalLimit, req.PageLimit, received, newsMaxLimit)
+		u.RawQuery = q.Encode()
+
+		resp, err := c.get(u)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to get news: %w", err)
+		}
+
+		var newsResp newsResponse
+		if err = unmarshal(resp, &newsResp); err != nil {
+			return nil, nextPageToken, fmt.Errorf("failed to unmarshal news: %w", err)
+		}
+
+		news = append(news, newsResp.News...)
+		if newsResp.NextPageToken == nil {
+			return news, "", nil
+		}
+		nextPageToken = *newsResp.NextPageToken
+		q.Set("page_token", *newsResp.NextPageToken)
+		received += len(newsResp.News)
+	}
+	return news, nextPageToken, nil
 }
 
 // GetTrades returns the trades for the given symbol.
