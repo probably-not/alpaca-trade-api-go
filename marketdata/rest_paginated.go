@@ -63,12 +63,12 @@ func (c *Client) GetMultiTradesPaginated(symbols []string, req GetTradesPaginate
 
 		resp, err := c.get(u)
 		if err != nil {
-			return nil, nextPageToken, err
+			return nil, "", err
 		}
 
 		var tradeResp multiTradeResponse
 		if err = unmarshal(resp, &tradeResp); err != nil {
-			return nil, nextPageToken, err
+			return nil, "", err
 		}
 
 		for symbol, t := range tradeResp.Trades {
@@ -82,7 +82,7 @@ func (c *Client) GetMultiTradesPaginated(symbols []string, req GetTradesPaginate
 		nextPageToken = *tradeResp.NextPageToken
 		q.Set("page_token", *tradeResp.NextPageToken)
 	}
-	return trades, "", nil
+	return trades, nextPageToken, nil
 }
 
 // GetQuotesPaginatedRequest contains optional parameters for getting quotes in a paginated way
@@ -130,12 +130,12 @@ func (c *Client) GetMultiQuotesPaginated(symbols []string, req GetQuotesPaginate
 
 		resp, err := c.get(u)
 		if err != nil {
-			return nil, nextPageToken, err
+			return nil, "", err
 		}
 
 		var quoteResp multiQuoteResponse
 		if err = unmarshal(resp, &quoteResp); err != nil {
-			return nil, nextPageToken, err
+			return nil, "", err
 		}
 
 		for symbol, q := range quoteResp.Quotes {
@@ -212,12 +212,12 @@ func (c *Client) GetMultiBarsPaginated(symbols []string, req GetBarsPaginatedReq
 
 		resp, err := c.get(u)
 		if err != nil {
-			return nil, nextPageToken, err
+			return nil, "", err
 		}
 
 		var barResp multiBarResponse
 		if err = unmarshal(resp, &barResp); err != nil {
-			return nil, nextPageToken, err
+			return nil, "", err
 		}
 
 		for symbol, b := range barResp.Bars {
@@ -281,12 +281,12 @@ func (c *Client) GetMultiAuctionsPaginated(
 
 		resp, err := c.get(u)
 		if err != nil {
-			return nil, nextPageToken, err
+			return nil, "", err
 		}
 
 		var auctionsResp multiAuctionsResponse
 		if err = unmarshal(resp, &auctionsResp); err != nil {
-			return nil, nextPageToken, err
+			return nil, "", err
 		}
 
 		for symbol, a := range auctionsResp.Auctions {
@@ -345,12 +345,12 @@ func (c *Client) GetCryptoMultiTradesPaginated(symbols []string, req GetCryptoTr
 
 		resp, err := c.get(u)
 		if err != nil {
-			return nil, nextPageToken, err
+			return nil, "", err
 		}
 
 		var tradeResp cryptoMultiTradeResponse
 		if err = unmarshal(resp, &tradeResp); err != nil {
-			return nil, nextPageToken, err
+			return nil, "", err
 		}
 
 		for symbol, t := range tradeResp.Trades {
@@ -412,12 +412,12 @@ func (c *Client) GetCryptoMultiBarsPaginated(symbols []string, req GetCryptoBars
 
 		resp, err := c.get(u)
 		if err != nil {
-			return nil, nextPageToken, err
+			return nil, "", err
 		}
 
 		var barResp cryptoMultiBarResponse
 		if err = unmarshal(resp, &barResp); err != nil {
-			return nil, nextPageToken, err
+			return nil, "", err
 		}
 
 		for symbol, b := range barResp.Bars {
@@ -480,7 +480,7 @@ func (c *Client) GetNewsPaginated(req GetNewsPaginatedRequest) ([]News, string, 
 
 		resp, err := c.get(u)
 		if err != nil {
-			return nil, nextPageToken, fmt.Errorf("failed to get news: %w", err)
+			return nil, "", fmt.Errorf("failed to get news: %w", err)
 		}
 
 		var newsResp newsResponse
