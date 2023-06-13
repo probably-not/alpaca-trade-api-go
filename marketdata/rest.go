@@ -275,56 +275,20 @@ type GetQuotesRequest struct {
 
 // GetQuotes returns the quotes for the given symbol.
 func (c *Client) GetQuotes(symbol string, req GetQuotesRequest) ([]Quote, error) {
-	resp, err := c.GetMultiQuotes([]string{symbol}, req)
+	resp, _, err := c.GetQuotesPaginated(symbol, GetQuotesPaginatedRequest{GetQuotesRequest: req})
 	if err != nil {
 		return nil, err
 	}
-	return resp[symbol], nil
+	return resp, nil
 }
 
 // GetMultiQuotes returns quotes for the given symbols.
 func (c *Client) GetMultiQuotes(symbols []string, req GetQuotesRequest) (map[string][]Quote, error) {
-	u, err := url.Parse(fmt.Sprintf("%s/%s/quotes", c.opts.BaseURL, stockPrefix))
+	resp, _, err := c.GetMultiQuotesPaginated(symbols, GetQuotesPaginatedRequest{GetQuotesRequest: req})
 	if err != nil {
 		return nil, err
 	}
-
-	q := u.Query()
-	c.setBaseQuery(q, baseRequest{
-		Symbols:  symbols,
-		Start:    req.Start,
-		End:      req.End,
-		Feed:     req.Feed,
-		AsOf:     req.AsOf,
-		Currency: req.Currency,
-	})
-
-	quotes := make(map[string][]Quote, len(symbols))
-	received := 0
-	for req.TotalLimit == 0 || received < req.TotalLimit {
-		setQueryLimit(q, req.TotalLimit, req.PageLimit, received, v2MaxLimit)
-		u.RawQuery = q.Encode()
-
-		resp, err := c.get(u)
-		if err != nil {
-			return nil, err
-		}
-
-		var quoteResp multiQuoteResponse
-		if err = unmarshal(resp, &quoteResp); err != nil {
-			return nil, err
-		}
-
-		for symbol, q := range quoteResp.Quotes {
-			quotes[symbol] = append(quotes[symbol], q...)
-			received += len(q)
-		}
-		if quoteResp.NextPageToken == nil {
-			break
-		}
-		q.Set("page_token", *quoteResp.NextPageToken)
-	}
-	return quotes, nil
+	return resp, nil
 }
 
 // GetBarsRequest contains optional parameters for getting bars
@@ -374,50 +338,20 @@ func (c *Client) setQueryBarRequest(q url.Values, symbols []string, req GetBarsR
 
 // GetBars returns a slice of bars for the given symbol.
 func (c *Client) GetBars(symbol string, req GetBarsRequest) ([]Bar, error) {
-	resp, err := c.GetMultiBars([]string{symbol}, req)
+	resp, _, err := c.GetBarsPaginated(symbol, GetBarsPaginatedRequest{GetBarsRequest: req})
 	if err != nil {
 		return nil, err
 	}
-	return resp[symbol], nil
+	return resp, nil
 }
 
 // GetMultiBars returns bars for the given symbols.
 func (c *Client) GetMultiBars(symbols []string, req GetBarsRequest) (map[string][]Bar, error) {
-	bars := make(map[string][]Bar, len(symbols))
-
-	u, err := url.Parse(fmt.Sprintf("%s/%s/bars", c.opts.BaseURL, stockPrefix))
+	resp, _, err := c.GetMultiBarsPaginated(symbols, GetBarsPaginatedRequest{GetBarsRequest: req})
 	if err != nil {
 		return nil, err
 	}
-
-	q := u.Query()
-	c.setQueryBarRequest(q, symbols, req)
-
-	received := 0
-	for req.TotalLimit == 0 || received < req.TotalLimit {
-		setQueryLimit(q, req.TotalLimit, req.PageLimit, received, v2MaxLimit)
-		u.RawQuery = q.Encode()
-
-		resp, err := c.get(u)
-		if err != nil {
-			return nil, err
-		}
-
-		var barResp multiBarResponse
-		if err = unmarshal(resp, &barResp); err != nil {
-			return nil, err
-		}
-
-		for symbol, b := range barResp.Bars {
-			bars[symbol] = append(bars[symbol], b...)
-			received += len(b)
-		}
-		if barResp.NextPageToken == nil {
-			break
-		}
-		q.Set("page_token", *barResp.NextPageToken)
-	}
-	return bars, nil
+	return resp, nil
 }
 
 // GetAuctionsRequest contains optional parameters for getting auctions
@@ -439,58 +373,22 @@ type GetAuctionsRequest struct {
 
 // GetAuctions returns the auctions for the given symbol.
 func (c *Client) GetAuctions(symbol string, req GetAuctionsRequest) ([]DailyAuctions, error) {
-	resp, err := c.GetMultiAuctions([]string{symbol}, req)
+	resp, _, err := c.GetAuctionsPaginated(symbol, GetAuctionsPaginatedRequest{GetAuctionsRequest: req})
 	if err != nil {
 		return nil, err
 	}
-	return resp[symbol], nil
+	return resp, nil
 }
 
 // GetMultiAuctions returns auctions for the given symbols.
 func (c *Client) GetMultiAuctions(
 	symbols []string, req GetAuctionsRequest,
 ) (map[string][]DailyAuctions, error) {
-	u, err := url.Parse(fmt.Sprintf("%s/%s/auctions", c.opts.BaseURL, stockPrefix))
+	resp, _, err := c.GetMultiAuctionsPaginated(symbols, GetAuctionsPaginatedRequest{GetAuctionsRequest: req})
 	if err != nil {
 		return nil, err
 	}
-
-	q := u.Query()
-	c.setBaseQuery(q, baseRequest{
-		Symbols:  symbols,
-		Start:    req.Start,
-		End:      req.End,
-		Feed:     "sip",
-		AsOf:     req.AsOf,
-		Currency: req.Currency,
-	})
-
-	auctions := make(map[string][]DailyAuctions, len(symbols))
-	received := 0
-	for req.TotalLimit == 0 || received < req.TotalLimit {
-		setQueryLimit(q, req.TotalLimit, req.PageLimit, received, v2MaxLimit)
-		u.RawQuery = q.Encode()
-
-		resp, err := c.get(u)
-		if err != nil {
-			return nil, err
-		}
-
-		var auctionsResp multiAuctionsResponse
-		if err = unmarshal(resp, &auctionsResp); err != nil {
-			return nil, err
-		}
-
-		for symbol, a := range auctionsResp.Auctions {
-			auctions[symbol] = append(auctions[symbol], a...)
-			received += len(a)
-		}
-		if auctionsResp.NextPageToken == nil {
-			break
-		}
-		q.Set("page_token", *auctionsResp.NextPageToken)
-	}
-	return auctions, nil
+	return resp, nil
 }
 
 type baseLatestRequest struct {
@@ -711,49 +609,20 @@ type GetCryptoTradesRequest struct {
 
 // GetCryptoTrades returns the trades for the given crypto symbol.
 func (c *Client) GetCryptoTrades(symbol string, req GetCryptoTradesRequest) ([]CryptoTrade, error) {
-	resp, err := c.GetCryptoMultiTrades([]string{symbol}, req)
+	resp, _, err := c.GetCryptoTradesPaginated(symbol, GetCryptoTradesPaginatedRequest{GetCryptoTradesRequest: req})
 	if err != nil {
 		return nil, err
 	}
-	return resp[symbol], nil
+	return resp, nil
 }
 
 // GetMultiTrades returns trades for the given crypto symbols.
 func (c *Client) GetCryptoMultiTrades(symbols []string, req GetCryptoTradesRequest) (map[string][]CryptoTrade, error) {
-	u, err := url.Parse(fmt.Sprintf("%s/%s/%s/trades", c.opts.BaseURL, cryptoPrefix, c.cryptoFeed(req.CryptoFeed)))
+	resp, _, err := c.GetCryptoMultiTradesPaginated(symbols, GetCryptoTradesPaginatedRequest{GetCryptoTradesRequest: req})
 	if err != nil {
 		return nil, err
 	}
-
-	q := u.Query()
-	setCryptoBaseQuery(q, symbols, req.Start, req.End)
-
-	trades := make(map[string][]CryptoTrade, len(symbols))
-	received := 0
-	for req.TotalLimit == 0 || received < req.TotalLimit {
-		setQueryLimit(q, req.TotalLimit, req.PageLimit, received, v2MaxLimit)
-		u.RawQuery = q.Encode()
-
-		resp, err := c.get(u)
-		if err != nil {
-			return nil, err
-		}
-
-		var tradeResp cryptoMultiTradeResponse
-		if err = unmarshal(resp, &tradeResp); err != nil {
-			return nil, err
-		}
-
-		for symbol, t := range tradeResp.Trades {
-			trades[symbol] = append(trades[symbol], t...)
-			received += len(t)
-		}
-		if tradeResp.NextPageToken == nil {
-			break
-		}
-		q.Set("page_token", *tradeResp.NextPageToken)
-	}
-	return trades, nil
+	return resp, nil
 }
 
 // GetCryptoBarsRequest contains optional parameters for getting crypto bars
@@ -784,50 +653,20 @@ func setQueryCryptoBarRequest(q url.Values, symbols []string, req GetCryptoBarsR
 
 // GetCryptoBars returns a slice of bars for the given crypto symbol.
 func (c *Client) GetCryptoBars(symbol string, req GetCryptoBarsRequest) ([]CryptoBar, error) {
-	resp, err := c.GetCryptoMultiBars([]string{symbol}, req)
+	resp, _, err := c.GetCryptoBarsPaginated(symbol, GetCryptoBarsPaginatedRequest{GetCryptoBarsRequest: req})
 	if err != nil {
 		return nil, err
 	}
-	return resp[symbol], nil
+	return resp, nil
 }
 
 // GetCryptoMultiBars returns bars for the given crypto symbols.
 func (c *Client) GetCryptoMultiBars(symbols []string, req GetCryptoBarsRequest) (map[string][]CryptoBar, error) {
-	u, err := url.Parse(fmt.Sprintf("%s/%s/%s/bars",
-		c.opts.BaseURL, cryptoPrefix, c.cryptoFeed(req.CryptoFeed)))
+	resp, _, err := c.GetCryptoMultiBarsPaginated(symbols, GetCryptoBarsPaginatedRequest{GetCryptoBarsRequest: req})
 	if err != nil {
 		return nil, err
 	}
-
-	q := u.Query()
-	setQueryCryptoBarRequest(q, symbols, req)
-
-	bars := make(map[string][]CryptoBar, len(symbols))
-	received := 0
-	for req.TotalLimit == 0 || received < req.TotalLimit {
-		setQueryLimit(q, req.TotalLimit, req.PageLimit, received, v2MaxLimit)
-		u.RawQuery = q.Encode()
-
-		resp, err := c.get(u)
-		if err != nil {
-			return nil, err
-		}
-
-		var barResp cryptoMultiBarResponse
-		if err = unmarshal(resp, &barResp); err != nil {
-			return nil, err
-		}
-
-		for symbol, b := range barResp.Bars {
-			bars[symbol] = append(bars[symbol], b...)
-			received += len(b)
-		}
-		if barResp.NextPageToken == nil {
-			break
-		}
-		q.Set("page_token", *barResp.NextPageToken)
-	}
-	return bars, nil
+	return resp, nil
 }
 
 type cryptoBaseLatestRequest struct {
@@ -1077,49 +916,9 @@ func (c *Client) setNewsQuery(q url.Values, p GetNewsRequest) {
 
 // GetNews returns the news articles based on the given req.
 func (c *Client) GetNews(req GetNewsRequest) ([]News, error) {
-	if req.TotalLimit < 0 {
-		return nil, fmt.Errorf("negative total limit")
-	}
-	if req.PageLimit < 0 {
-		return nil, fmt.Errorf("negative page limit")
-	}
-	if req.NoTotalLimit && req.TotalLimit != 0 {
-		return nil, fmt.Errorf("both NoTotalLimit and non-zero TotalLimit specified")
-	}
-	u, err := url.Parse(fmt.Sprintf("%s/v1beta1/news", c.opts.BaseURL))
+	news, _, err := c.GetNewsPaginated(GetNewsPaginatedRequest{GetNewsRequest: req})
 	if err != nil {
-		return nil, fmt.Errorf("invalid news url: %w", err)
-	}
-
-	q := u.Query()
-	c.setNewsQuery(q, req)
-	received := 0
-	totalLimit := req.TotalLimit
-	if req.TotalLimit == 0 && !req.NoTotalLimit {
-		totalLimit = newsMaxLimit
-	}
-
-	news := make([]News, 0, totalLimit)
-	for totalLimit == 0 || received < totalLimit {
-		setQueryLimit(q, totalLimit, req.PageLimit, received, newsMaxLimit)
-		u.RawQuery = q.Encode()
-
-		resp, err := c.get(u)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get news: %w", err)
-		}
-
-		var newsResp newsResponse
-		if err = unmarshal(resp, &newsResp); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal news: %w", err)
-		}
-
-		news = append(news, newsResp.News...)
-		if newsResp.NextPageToken == nil {
-			return news, nil
-		}
-		q.Set("page_token", *newsResp.NextPageToken)
-		received += len(newsResp.News)
+		return nil, err
 	}
 	return news, nil
 }
