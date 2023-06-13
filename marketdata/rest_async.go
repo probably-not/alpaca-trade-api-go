@@ -6,6 +6,7 @@ func (c *Client) GetTradesAsync(symbol string, req GetTradesPaginatedRequest, ca
 	for {
 		resp, nextPageToken, err := c.GetMultiTradesPaginated([]string{symbol}, req)
 		keepGoing := callback(resp[symbol], err)
+		req.PageToken = nextPageToken
 		if keepGoing && nextPageToken != "" {
 			continue
 		}
@@ -24,6 +25,7 @@ func (c *Client) GetQuotesAsync(symbol string, req GetQuotesPaginatedRequest, ca
 	for {
 		resp, nextPageToken, err := c.GetMultiQuotesPaginated([]string{symbol}, req)
 		keepGoing := callback(resp[symbol], err)
+		req.PageToken = nextPageToken
 		if keepGoing && nextPageToken != "" {
 			continue
 		}
@@ -42,6 +44,7 @@ func (c *Client) GetBarsAsync(symbol string, req GetBarsPaginatedRequest, callba
 	for {
 		resp, nextPageToken, err := c.GetMultiBarsPaginated([]string{symbol}, req)
 		keepGoing := callback(resp[symbol], err)
+		req.PageToken = nextPageToken
 		if keepGoing && nextPageToken != "" {
 			continue
 		}
@@ -60,6 +63,7 @@ func (c *Client) GetAuctionsAsync(symbol string, req GetAuctionsPaginatedRequest
 	for {
 		resp, nextPageToken, err := c.GetMultiAuctionsPaginated([]string{symbol}, req)
 		keepGoing := callback(resp[symbol], err)
+		req.PageToken = nextPageToken
 		if keepGoing && nextPageToken != "" {
 			continue
 		}
@@ -78,6 +82,7 @@ func (c *Client) GetCryptoTradesAsync(symbol string, req GetCryptoTradesPaginate
 	for {
 		resp, nextPageToken, err := c.GetCryptoMultiTradesPaginated([]string{symbol}, req)
 		keepGoing := callback(resp[symbol], err)
+		req.PageToken = nextPageToken
 		if keepGoing && nextPageToken != "" {
 			continue
 		}
@@ -96,6 +101,7 @@ func (c *Client) GetCryptoBarsAsync(symbol string, req GetCryptoBarsPaginatedReq
 	for {
 		resp, nextPageToken, err := c.GetCryptoMultiBarsPaginated([]string{symbol}, req)
 		keepGoing := callback(resp[symbol], err)
+		req.PageToken = nextPageToken
 		if keepGoing && nextPageToken != "" {
 			continue
 		}
@@ -114,6 +120,7 @@ func (c *Client) GetNewsAsync(req GetNewsPaginatedRequest, callback func(news []
 	for {
 		resp, nextPageToken, err := c.GetNewsPaginated(req)
 		keepGoing := callback(resp, err)
+		req.PageToken = nextPageToken
 		if keepGoing && nextPageToken != "" {
 			continue
 		}
