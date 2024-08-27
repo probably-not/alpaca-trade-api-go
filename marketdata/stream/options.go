@@ -17,6 +17,10 @@ type CryptoOption interface {
 	applyCrypto(*cryptoOptions)
 }
 
+type OptionOption interface {
+	applyOption(*optionOptions)
+}
+
 type NewsOption interface {
 	applyNews(*newsOptions)
 }
@@ -25,6 +29,7 @@ type NewsOption interface {
 type Option interface {
 	StockOption
 	CryptoOption
+	OptionOption
 	NewsOption
 }
 
@@ -36,6 +41,7 @@ type options struct {
 	reconnectLimit     int
 	reconnectDelay     time.Duration
 	connectCallback    func()
+	bufferFillCallback func([]byte)
 	disconnectCallback func()
 	processorCount     int
 	bufferSize         int
@@ -54,6 +60,10 @@ func (fo *funcOption) applyCrypto(o *cryptoOptions) {
 }
 
 func (fo *funcOption) applyStock(o *stockOptions) {
+	fo.f(&o.options)
+}
+
+func (fo *funcOption) applyOption(o *optionOptions) {
 	fo.f(&o.options)
 }
 
@@ -111,6 +121,17 @@ func WithReconnectSettings(limit int, delay time.Duration) Option {
 func WithConnectCallback(callback func()) Option {
 	return newFuncOption(func(o *options) {
 		o.connectCallback = callback
+	})
+}
+
+// WithBufferFillCallback runs the callback function whenever the buffer is full
+// and msg cannot be delivered. This usually happens when trade/quote handlers
+// process the messages slowly and they cannot keep up with the pace how messages
+// are received. This callback should run fast, so avoid any blocking
+// instructions in the callback.
+func WithBufferFillCallback(callback func(msg []byte)) Option {
+	return newFuncOption(func(o *options) {
+		o.bufferFillCallback = callback
 	})
 }
 
@@ -410,6 +431,81 @@ func WithCryptoOrderbooks(handler func(CryptoOrderbook), symbols ...string) Cryp
 	return newFuncCryptoOption(func(o *cryptoOptions) {
 		o.sub.orderbooks = symbols
 		o.orderbookHandler = handler
+	})
+}
+
+type optionOptions struct {
+	options
+	tradeHandler func(OptionTrade)
+	quoteHandler func(OptionQuote)
+}
+
+// defaultOptionOptions are the default options for a client.
+// Don't change this in a backward incompatible way!
+func defaultOptionOptions() *optionOptions {
+	baseURL := "https://stream.data.alpaca.markets/v1beta1"
+	// Should this override option be removed?
+	if s := os.Getenv("DATA_PROXY_WS"); s != "" {
+		baseURL = s
+	}
+
+	return &optionOptions{
+		options: options{
+			logger:         DefaultLogger(),
+			baseURL:        baseURL,
+			key:            os.Getenv("APCA_API_KEY_ID"),
+			secret:         os.Getenv("APCA_API_SECRET_KEY"),
+			reconnectLimit: 20,
+			reconnectDelay: 150 * time.Millisecond,
+			processorCount: 1,
+			bufferSize:     100000,
+			sub: subscriptions{
+				trades:      []string{},
+				quotes:      []string{},
+				bars:        []string{},
+				updatedBars: []string{},
+				dailyBars:   []string{},
+			},
+			connCreator: newNhooyrWebsocketConn,
+		},
+		tradeHandler: func(t OptionTrade) {},
+		quoteHandler: func(q OptionQuote) {},
+	}
+}
+
+func (o *optionOptions) applyOption(opts ...OptionOption) {
+	for _, opt := range opts {
+		opt.applyOption(o)
+	}
+}
+
+type funcOptionOption struct {
+	f func(*optionOptions)
+}
+
+func (fo *funcOptionOption) applyOption(o *optionOptions) {
+	fo.f(o)
+}
+
+func newFuncOptionOption(f func(*optionOptions)) *funcOptionOption {
+	return &funcOptionOption{
+		f: f,
+	}
+}
+
+// WithOptionTrades configures initial trade symbols to subscribe to and the handler
+func WithOptionTrades(handler func(OptionTrade), symbols ...string) OptionOption {
+	return newFuncOptionOption(func(o *optionOptions) {
+		o.sub.trades = symbols
+		o.tradeHandler = handler
+	})
+}
+
+// WithOptionQuotes configures initial quote symbols to subscribe to and the handler
+func WithOptionQuotes(handler func(OptionQuote), symbols ...string) OptionOption {
+	return newFuncOptionOption(func(o *optionOptions) {
+		o.sub.quotes = symbols
+		o.quoteHandler = handler
 	})
 }
 

@@ -3,12 +3,14 @@ package stream
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vmihailenco/msgpack/v5"
 
 	"github.com/alpacahq/alpaca-trade-api-go/v3/marketdata"
 )
@@ -600,6 +602,159 @@ func TestSubscriptionAcrossConnectionIssues(t *testing.T) {
 	require.ElementsMatch(t, []string{"PACA"}, c.sub.trades)
 }
 
+func TestSubscriptionTwiceAcrossConnectionIssues(t *testing.T) {
+	mockTimeAfterCh := make(chan time.Time)
+	timeAfter = func(d time.Duration) <-chan time.Time {
+		return mockTimeAfterCh
+	}
+	defer func() {
+		timeAfter = time.After
+	}()
+
+	conn1 := newMockConn()
+	writeInitialFlowMessagesToConn(t, conn1, subscriptions{})
+
+	connected := make(chan struct{})
+	connectCallback := func() {
+		t.Log("connected")
+		connected <- struct{}{}
+	}
+
+	disconnected := make(chan struct{})
+	disconnectCallback := func() {
+		t.Log("disconnected")
+		disconnected <- struct{}{}
+	}
+
+	key := "testkey"
+	secret := "testsecret"
+	c := NewStocksClient(marketdata.IEX,
+		WithCredentials(key, secret),
+		withConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
+			return conn1, nil
+		}),
+		WithReconnectSettings(0, 150*time.Millisecond),
+		WithConnectCallback(connectCallback),
+		WithDisconnectCallback(disconnectCallback),
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// connect
+	err := c.Connect(ctx)
+	require.NoError(t, err)
+	// wait connect callback
+	<-connected
+	checkInitialMessagesSentByClient(t, conn1, key, secret, subscriptions{})
+
+	// subscribing to something
+	trades1 := []string{"AL", "PACA"}
+	subRes := make(chan error)
+	subFunc := func() {
+		subRes <- c.SubscribeToTrades(func(trade Trade) {}, "AL", "PACA")
+	}
+	go subFunc()
+	sub := expectWrite(t, conn1)
+	require.Equal(t, "subscribe", sub["action"])
+	require.ElementsMatch(t, trades1, sub["trades"])
+	// server accepts subscription
+	conn1.readCh <- serializeToMsgpack(t, []subWithT{
+		{
+			Type:   "subscription",
+			Trades: trades1,
+		},
+	})
+	err = <-subRes
+	require.NoError(t, err)
+
+	// shutting down the first connection
+	c.connCreator = func(ctx context.Context, u url.URL) (conn, error) {
+		return nil, fmt.Errorf("connection failed")
+	}
+	conn1.close()
+	// wait disconnect callback
+	<-disconnected
+
+	// request subscribe will be timed out during disconnection
+	go subFunc()
+
+	mockTimeAfterCh <- time.Now()
+	err = <-subRes
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrSubscriptionChangeTimeout), "actual: %s", err)
+
+	// after a timeout we should be able to get timed out again
+	go subFunc()
+
+	mockTimeAfterCh <- time.Now()
+	err = <-subRes
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrSubscriptionChangeTimeout), "actual: %s", err)
+
+	// establish 2nd connection
+	conn2 := newMockConn()
+	writeInitialFlowMessagesToConn(t, conn2, subscriptions{trades: trades1})
+	c.connCreator = func(ctx context.Context, u url.URL) (conn, error) {
+		return conn2, nil
+	}
+	// wait connect callback
+	<-connected
+
+	// checking whether the client sent what we wanted it to (auth,sub1,sub2)
+	checkInitialMessagesSentByClient(t, conn2, key, secret, subscriptions{trades: trades1})
+
+	go subFunc()
+	sub = expectWrite(t, conn2)
+	require.Equal(t, "subscribe", sub["action"])
+	require.ElementsMatch(t, trades1, sub["trades"])
+
+	// responding to the subscription request
+	conn2.readCh <- serializeToMsgpack(t, []subWithT{
+		{
+			Type:   "subscription",
+			Trades: trades1,
+			Quotes: []string{},
+			Bars:   []string{},
+		},
+	})
+	require.NoError(t, <-subRes)
+	require.ElementsMatch(t, trades1, c.sub.trades)
+
+	// the connection is shut down and the new one isn't established for a while
+	conn3 := newMockConn()
+	defer conn3.close()
+	c.connCreator = func(ctx context.Context, u url.URL) (conn, error) {
+		time.Sleep(100 * time.Millisecond)
+		writeInitialFlowMessagesToConn(t, conn3, subscriptions{trades: trades1})
+		return conn3, nil
+	}
+	conn2.close()
+
+	// call an unsubscribe with the connection being down
+	unsubRes := make(chan error)
+	go func() { unsubRes <- c.UnsubscribeFromTrades("AL") }()
+
+	// connection starts up, proper messages (auth,sub,unsub)
+	checkInitialMessagesSentByClient(t, conn3, key, secret, subscriptions{trades: trades1})
+	unsub := expectWrite(t, conn3)
+	require.Equal(t, "unsubscribe", unsub["action"])
+	require.ElementsMatch(t, []string{"AL"}, unsub["trades"])
+
+	// responding to the unsub request
+	conn3.readCh <- serializeToMsgpack(t, []subWithT{
+		{
+			Type:   "subscription",
+			Trades: []string{"PACA"},
+			Quotes: []string{},
+			Bars:   []string{},
+		},
+	})
+
+	// make sure the sub has returned by now (client changed)
+	require.NoError(t, <-unsubRes)
+	require.ElementsMatch(t, []string{"PACA"}, c.sub.trades)
+}
+
 func TestSubscribeFailsDueToError(t *testing.T) {
 	connection := newMockConn()
 	defer connection.close()
@@ -685,6 +840,84 @@ func TestSubscribeFailsDueToError(t *testing.T) {
 	err = <-subRes
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrSubscriptionChangeInvalidForFeed))
+}
+
+func assertBufferFills(t *testing.T, bufferFills, trades chan Trade, minID, maxID, minTrades int) {
+	timer := time.NewTimer(100 * time.Millisecond)
+	count := maxID - minID + 1
+	minFills := count - minTrades - 1
+
+	sumTrades := 0
+	sumFills := 0
+	for i := 0; i < minFills; i++ {
+		select {
+		case trade := <-bufferFills:
+			sumFills++
+			assert.LessOrEqual(t, int64(minID), trade.ID)
+			assert.GreaterOrEqual(t, int64(maxID), trade.ID)
+		case <-timer.C:
+			require.Fail(t, "buffer fill timeout")
+		}
+	}
+
+	for i := minFills; i < count; i++ {
+		select {
+		case trade := <-bufferFills:
+			sumFills++
+			assert.LessOrEqual(t, int64(minID), trade.ID)
+			assert.GreaterOrEqual(t, int64(maxID), trade.ID)
+		case trade := <-trades:
+			sumTrades++
+			assert.LessOrEqual(t, int64(minID), trade.ID)
+			assert.GreaterOrEqual(t, int64(maxID), trade.ID)
+		}
+	}
+
+	assert.LessOrEqual(t, minFills, sumFills)
+	assert.LessOrEqual(t, minTrades, sumTrades)
+}
+
+func TestCallbacksCalledOnBufferFill(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	connection := newMockConn()
+	defer connection.close()
+
+	writeInitialFlowMessagesToConn(t, connection, subscriptions{trades: []string{"ALPACA"}})
+
+	const bufferSize = 2
+	bufferFills := make(chan Trade, 10)
+	trades := make(chan Trade)
+
+	c := NewStocksClient(marketdata.IEX,
+		WithBufferSize(bufferSize),
+		WithBufferFillCallback(func(msg []byte) {
+			trades := []tradeWithT{}
+			require.NoError(t, msgpack.Unmarshal(msg, &trades))
+			bufferFills <- Trade{
+				ID:     trades[0].ID,
+				Symbol: trades[0].Symbol,
+			}
+		}),
+		withConnCreator(func(ctx context.Context, u url.URL) (conn, error) { return connection, nil }),
+		WithTrades(func(t Trade) { trades <- t }, "ALPACA"),
+	)
+	require.NoError(t, c.Connect(ctx))
+
+	// The buffer size is 2 but we send at least 4 (2 buffer size, 1
+	// messageProcessor goroutine, 1 extra) trades to have a buffer fill. The
+	// messageProcessor goroutines can read c.in while the rest of messages can
+	// be queued in the buffered channel.
+	for id := int64(1); id <= 4; id++ {
+		connection.readCh <- serializeToMsgpack(t, []any{tradeWithT{Type: "t", Symbol: "ALPACA", ID: id}})
+	}
+	assertBufferFills(t, bufferFills, trades, 1, 4, bufferSize)
+
+	for id := int64(5); id <= 10; id++ {
+		connection.readCh <- serializeToMsgpack(t, []any{tradeWithT{Type: "t", Symbol: "ALPACA", ID: id}})
+	}
+	assertBufferFills(t, bufferFills, trades, 5, 10, bufferSize)
 }
 
 func TestPingFails(t *testing.T) {
@@ -1111,6 +1344,79 @@ func TestCoreFunctionalityCrypto(t *testing.T) {
 		assert.Equal(t, 2, len(ob.Asks))
 	case <-time.After(time.Second):
 		require.Fail(t, "no orderbook received in time")
+	}
+}
+
+func TestCoreFunctionalityOption(t *testing.T) {
+	connection := newMockConn()
+	defer connection.close()
+	const spx1 = "SPXW240308P05120000"
+	const spx2 = "SPXW240308P05075000"
+	writeInitialFlowMessagesToConn(t, connection, subscriptions{
+		trades: []string{spx1},
+		quotes: []string{spx2},
+	})
+
+	trades := make(chan OptionTrade, 10)
+	quotes := make(chan OptionQuote, 10)
+	c := NewOptionClient(marketdata.US,
+		WithOptionTrades(func(t OptionTrade) { trades <- t }, spx1),
+		WithOptionQuotes(func(q OptionQuote) { quotes <- q }, spx2),
+		withConnCreator(func(ctx context.Context, u url.URL) (conn, error) {
+			return connection, nil
+		}))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// connecting with the client
+	err := c.Connect(ctx)
+	require.NoError(t, err)
+
+	connection.readCh <- serializeToMsgpack(t, []interface{}{
+		optionTradeWithT{
+			Type:      "t",
+			Symbol:    spx1,
+			Exchange:  "C",
+			Price:     5.06,
+			Size:      1,
+			Timestamp: time.Date(2024, 3, 8, 11, 41, 24, 727071744, time.UTC),
+			Condition: "I",
+		},
+		optionQuoteWithT{
+			Type:        "q",
+			Symbol:      spx2,
+			BidExchange: "C",
+			BidPrice:    0.7,
+			BidSize:     476,
+			AskExchange: "C",
+			AskPrice:    0.8,
+			AskSize:     921,
+			Timestamp:   time.Date(2024, 3, 8, 12, 3, 19, 245168896, time.UTC),
+			Condition:   "B",
+		},
+	})
+
+	// checking contents
+	select {
+	case trade := <-trades:
+		assert.Equal(t, spx1, trade.Symbol)
+		assert.Equal(t, "C", trade.Exchange)
+		assert.Equal(t, 5.06, trade.Price)
+		assert.Equal(t, "I", trade.Condition)
+	case <-time.After(time.Second):
+		require.Fail(t, "no trade received in time")
+	}
+
+	select {
+	case quote := <-quotes:
+		assert.Equal(t, spx2, quote.Symbol)
+		assert.EqualValues(t, 0.8, quote.AskPrice)
+		assert.EqualValues(t, 921, quote.AskSize)
+		assert.EqualValues(t, 0.7, quote.BidPrice)
+		assert.EqualValues(t, "C", quote.BidExchange)
+		assert.Equal(t, "B", quote.Condition)
+	case <-time.After(time.Second):
+		require.Fail(t, "no quote received in time")
 	}
 }
 

@@ -4,9 +4,13 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
+	"text/tabwriter"
 	"time"
+
+	"cloud.google.com/go/civil"
 
 	"github.com/alpacahq/alpaca-trade-api-go/v3/marketdata"
 )
@@ -120,6 +124,77 @@ func cryptoQuote() {
 	fmt.Println()
 }
 
+func optionChain() {
+	chain, err := marketdata.GetOptionChain("AAPL", marketdata.GetOptionChainRequest{
+		Type:              marketdata.Call,
+		ExpirationDateLte: civil.DateOf(time.Now()).AddDays(5),
+	})
+	if err != nil {
+		panic(err)
+	}
+	type snap struct {
+		marketdata.OptionSnapshot
+		Symbol string
+	}
+	snaps := []snap{}
+	for symbol, snapshot := range chain {
+		snaps = append(snaps, snap{OptionSnapshot: snapshot, Symbol: symbol})
+	}
+	sort.Slice(snaps, func(i, j int) bool { return snaps[i].Symbol < snaps[j].Symbol })
+
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	columns := []any{
+		"Contract name", "Last trade time", "Price", "Bid", "Ask",
+		"IV", "Delta", "Gamma", "Rho", "Theta", "Vega",
+	}
+	fmt.Fprintf(tw, strings.Repeat("%s\t", len(columns))+"\n", columns...)
+	for _, s := range snaps {
+		ts := ""
+		if s.LatestTrade != nil {
+			ts = s.LatestTrade.Timestamp.Format(time.RFC3339)
+		}
+		price := float64(0)
+		if s.LatestTrade != nil {
+			price = s.LatestTrade.Price
+		}
+		bid, ask := float64(0), float64(0)
+		if s.LatestQuote != nil {
+			bid = s.LatestQuote.BidPrice
+			ask = s.LatestQuote.AskPrice
+		}
+		iv := ""
+		if s.ImpliedVolatility != 0 {
+			iv = strconv.FormatFloat(s.ImpliedVolatility, 'f', 4, 64)
+		}
+		var delta, gamma, rho, theta, vega string
+		if s.Greeks != nil {
+			delta = strconv.FormatFloat(s.Greeks.Delta, 'f', 4, 64)
+			gamma = strconv.FormatFloat(s.Greeks.Gamma, 'f', 4, 64)
+			rho = strconv.FormatFloat(s.Greeks.Rho, 'f', 4, 64)
+			theta = strconv.FormatFloat(s.Greeks.Theta, 'f', 4, 64)
+			vega = strconv.FormatFloat(s.Greeks.Vega, 'f', 4, 64)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%g\t%g\t%g\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			s.Symbol, ts, price, bid, ask, iv, delta, gamma, rho, theta, vega)
+	}
+	tw.Flush()
+}
+
+func corporateActions() {
+	cas, err := marketdata.GetCorporateActions(marketdata.GetCorporateActionsRequest{
+		Symbols: []string{"TSLA"},
+		Types:   []string{"forward_split"},
+		Start:   civil.Date{Year: 2018, Month: 1, Day: 1},
+	})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("TSLA forward splits:")
+	for _, split := range cas.ForwardSplits {
+		fmt.Printf(" - %+v\n", split)
+	}
+}
+
 type example struct {
 	Name string
 	Func func()
@@ -134,6 +209,8 @@ func main() {
 		{Name: "news", Func: news},
 		{Name: "auctions", Func: auctions},
 		{Name: "crypto_quote", Func: cryptoQuote},
+		{Name: "option_chain", Func: optionChain},
+		{Name: "corporate_actions", Func: corporateActions},
 	}
 	for {
 		fmt.Println("Examples: ")

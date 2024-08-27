@@ -148,32 +148,6 @@ const (
 	Crypto   AssetClass = "crypto"
 )
 
-type Fundamental struct {
-	AssetID           string          `json:"asset_id"`
-	Symbol            string          `json:"symbol"`
-	FullName          string          `json:"full_name"`
-	IndustryName      string          `json:"industry_name"`
-	IndustryGroup     string          `json:"industry_group"`
-	Sector            string          `json:"sector"`
-	PERatio           float32         `json:"pe_ratio"`
-	PEGRatio          float32         `json:"peg_ratio"`
-	Beta              float32         `json:"beta"`
-	EPS               float32         `json:"eps"`
-	MarketCap         int64           `json:"market_cap"`
-	SharesOutstanding int64           `json:"shares_outstanding"`
-	AvgVol            int64           `json:"avg_vol"`
-	DivRate           float32         `json:"div_rate"`
-	ROE               float32         `json:"roe"`
-	ROA               float32         `json:"roa"`
-	PS                float32         `json:"ps"`
-	PC                float32         `json:"pc"`
-	GrossMargin       float32         `json:"gross_margin"`
-	FiftyTwoWeekHigh  decimal.Decimal `json:"fifty_two_week_high"`
-	FiftyTwoWeekLow   decimal.Decimal `json:"fifty_two_week_low"`
-	ShortDescription  string          `json:"short_description"`
-	LongDescription   string          `json:"long_description"`
-}
-
 type CalendarDay struct {
 	Date  string `json:"date"`
 	Open  string `json:"open"`
@@ -212,6 +186,9 @@ type AccountActivity struct {
 	NetAmount       decimal.Decimal `json:"net_amount"`
 	Description     string          `json:"description"`
 	PerShareAmount  decimal.Decimal `json:"per_share_amount"`
+	OrderID         string          `json:"order_id"`
+	OrderStatus     string          `json:"order_status"`
+	Status          string          `json:"status"`
 }
 
 //easyjson:json
@@ -231,6 +208,15 @@ type Side string
 const (
 	Buy  Side = "buy"
 	Sell Side = "sell"
+)
+
+type PositionIntent string
+
+const (
+	BuyToOpen   PositionIntent = "buy_to_open"
+	BuyToClose  PositionIntent = "buy_to_close"
+	SellToOpen  PositionIntent = "sell_to_open"
+	SellToClose PositionIntent = "sell_to_close"
 )
 
 type OrderType string
@@ -393,4 +379,13 @@ func (e *APIError) Error() string {
 		return fmt.Sprintf("%s (HTTP %d, Code %d)", e.Message, e.StatusCode, e.Code)
 	}
 	return fmt.Sprintf("%s (HTTP %d)", e.Message, e.StatusCode)
+}
+
+//easyjson:json
+type closeAllPositionsSlice []closeAllPositionsResponse
+
+type closeAllPositionsResponse struct {
+	Symbol string          `json:"symbol"`
+	Status int             `json:"status"`
+	Body   json.RawMessage `json:"body,omitempty"`
 }

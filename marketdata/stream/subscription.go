@@ -178,6 +178,28 @@ func (cc *CryptoClient) UnsubscribeFromOrderbooks(symbols ...string) error {
 	return cc.handleSubChange(false, subscriptions{orderbooks: symbols})
 }
 
+func (cc *OptionClient) SubscribeToTrades(handler func(OptionTrade), symbols ...string) error {
+	cc.handler.mu.Lock()
+	cc.handler.tradeHandler = handler
+	cc.handler.mu.Unlock()
+	return cc.client.handleSubChange(true, subscriptions{trades: symbols})
+}
+
+func (cc *OptionClient) SubscribeToQuotes(handler func(OptionQuote), symbols ...string) error {
+	cc.handler.mu.Lock()
+	cc.handler.quoteHandler = handler
+	cc.handler.mu.Unlock()
+	return cc.client.handleSubChange(true, subscriptions{quotes: symbols})
+}
+
+func (cc *OptionClient) UnsubscribeFromTrades(symbols ...string) error {
+	return cc.handleSubChange(false, subscriptions{trades: symbols})
+}
+
+func (cc *OptionClient) UnsubscribeFromQuotes(symbols ...string) error {
+	return cc.handleSubChange(false, subscriptions{quotes: symbols})
+}
+
 func (nc *NewsClient) SubscribeToNews(handler func(News), symbols ...string) error {
 	nc.handler.mu.Lock()
 	nc.handler.newsHandler = handler
@@ -240,6 +262,13 @@ func (c *client) handleSubChange(subscribe bool, changes subscriptions) error {
 		c.pendingSubChangeMutex.Lock()
 		defer c.pendingSubChangeMutex.Unlock()
 		c.pendingSubChange = nil
+		// Drain the c.subChanges channel to avoid waiting size 1 channel when connection is lost.
+		// Please consider using connect/disconnect callbacks to avoid requesting sub change during disconnection.
+		select {
+		case <-c.subChanges:
+			c.logger.Warnf("datav2stream: removed sub changes request due to timeout")
+		default:
+		}
 	}
 
 	return ErrSubscriptionChangeTimeout
